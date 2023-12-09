@@ -6,7 +6,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from typing import List
 from pydantic import BaseModel
 import asyncio
-import json
 import subprocess
 
 app = FastAPI()
@@ -19,36 +18,46 @@ class CommandRequest(BaseModel):
     args: List[str] = []  # "List" needed when python 3.8 (not 3.9).
 
 
-async def run_command(command, args):
-    process = await asyncio.create_subprocess_exec(
-        command, *args,
+async def run_external_command(command, args):
+    full_command = f"{command} {' '.join(args)}"
+    # Run the command with shell expansion to make wildcard work.
+    process = await asyncio.create_subprocess_shell(
+        full_command,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
     stdout, stderr = await process.communicate()
-    print(f"Sleeping {sleep_seconds} seconds...")
+    print(f"Before sleeping {sleep_seconds} seconds...")
     await asyncio.sleep(sleep_seconds)
+    print(f"After sleeping {sleep_seconds} seconds...")
     return stdout, stderr, process.returncode
+
+
+def valid_command(command):
+    # Allow 'lsx' in order to be able to test with an invalid external command.
+    return command in ('ls', 'lsx', 'mkdir', 'touch')
 
 
 @app.post("/execute-command")
 async def execute_command(request: CommandRequest):
-    print("Here1!!!")
-    try:
-        stdout, stderr, returncode = await run_command(request.command, request.args)
-    except Exception as e:
-        print(f"Here3!!! {e}")
-        return JSONResponse(status_code=500, content={"detail": "Command failed: 500"})
-        # raise HTTPException(status_code=500, detail=f"Command failed: 500")
+    if not valid_command(request.command):
+        return JSONResponse(status_code=400, content={"detail": "Command not allowed"})
 
-    print("Here2!!!")
-    if returncode != 0:
-        raise HTTPException(status_code=400, detail=f"Command failed: {stderr.decode().strip()}")
+    try:
+        stdout, stderr, return_code = await run_external_command(request.command, request.args)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"detail": "Command failed: 500"})
+
+    if return_code != 0:
+        error_detail = f"Command failed (return code: {return_code})"
+        message = stderr.decode().strip()
+        if message:
+            error_detail += f", {message}"
+        return JSONResponse(status_code=400, content={"detail": error_detail})
     return {"output": stdout.decode().splitlines()}
 
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    print(f"### in http_exception_handler, exc.status_code={exc.status_code}, exc.detail={exc.detail}")
     if exc.status_code == 404:
         return JSONResponse(
             status_code=404,
