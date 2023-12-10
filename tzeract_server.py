@@ -1,6 +1,6 @@
 #!/usr/bin/python3 -u
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from typing import List
@@ -10,7 +10,7 @@ import subprocess
 
 app = FastAPI()
 
-sleep_seconds = 0
+sleep_seconds = 5
 
 
 class CommandRequest(BaseModel):
@@ -33,6 +33,7 @@ async def run_external_command(command, args):
 
 
 def valid_command(command):
+    # Whitelisting which commands are allowed, to limit the risk of dangerous commands being run.
     # Allow 'lsx' in order to be able to test with an invalid external command.
     return command in ('ls', 'lsx', 'mkdir', 'touch')
 
